@@ -1,3 +1,4 @@
+import { createDeepSeek } from "@ai-sdk/deepseek";
 import { ConfigurationError, createGatewayFetch } from "@every-app/sdk/server";
 import {
   createOpenRouter,
@@ -50,10 +51,20 @@ export function getOpenRouterAccess(env: object): OpenRouterAccess | null {
     }
   }
   const apiKey = getEnvValueSync(env, "OPENROUTER_API_KEY");
-  // Any OpenAI-compatible endpoint that speaks OpenRouter's chat API; unset
-  // means OpenRouter itself.
+  // Unset means OpenRouter. api.deepseek.com is handled in buildChatAgentModel;
+  // any other URL is expected to speak OpenRouter's chat API.
   const baseURL = getEnvValueSync(env, "OPENROUTER_BASE_URL");
   return apiKey ? { apiKey, baseURL } : null;
+}
+
+// DeepSeek rejects json_schema. Its SDK sends json_object instead.
+function isDeepSeekBaseUrl(baseURL: string | undefined): boolean {
+  if (!baseURL) return false;
+  try {
+    return new URL(baseURL).hostname === "api.deepseek.com";
+  } catch {
+    return false;
+  }
 }
 
 /** SAM's model, from its Durable Object env. Sync: Think's getModel() is. */
@@ -143,6 +154,12 @@ export function buildChatAgentModel(
   reasoningEffort: "max" | "low" = "max",
 ): LanguageModelV3 {
   const model = modelId ?? DEFAULT_CHAT_AGENT_MODEL;
+  if ("apiKey" in access && isDeepSeekBaseUrl(access.baseURL)) {
+    return createDeepSeek({
+      apiKey: access.apiKey,
+      baseURL: access.baseURL,
+    }).chat(model);
+  }
   const openrouter =
     "apiKey" in access
       ? createOpenRouter({ apiKey: access.apiKey, baseURL: access.baseURL })

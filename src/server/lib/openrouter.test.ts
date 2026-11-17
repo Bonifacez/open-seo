@@ -1,4 +1,4 @@
-import { generateText } from "ai";
+import { generateText, Output } from "ai";
 import { beforeEach, expect, it, vi } from "vitest";
 import { z } from "zod";
 
@@ -57,6 +57,41 @@ it("sends requests to a custom base URL without the region lookup", async () => 
     "https://llm.example.com/v1/chat/completions",
     expect.anything(),
   );
+});
+
+it("asks DeepSeek for a JSON object, not a JSON schema", async () => {
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+    Response.json({
+      choices: [
+        {
+          message: { role: "assistant", content: '{"name":"ok"}' },
+          finish_reason: "stop",
+        },
+      ],
+    }),
+  );
+  const { buildChatAgentModel } = await import("./openrouter");
+  await generateText({
+    model: buildChatAgentModel(
+      { apiKey: "key", baseURL: "https://api.deepseek.com" },
+      "deepseek-flash",
+    ),
+    output: Output.object({ schema: z.object({ name: z.string() }) }),
+    prompt: "hi",
+  });
+  expect(fetchMock).toHaveBeenCalledOnce();
+  expect(fetchMock).toHaveBeenCalledWith(
+    "https://api.deepseek.com/chat/completions",
+    expect.anything(),
+  );
+  const body = z
+    .object({
+      model: z.string(),
+      response_format: z.object({ type: z.string() }).optional(),
+    })
+    .parse(JSON.parse(z.string().parse(fetchMock.mock.calls[0]?.[1]?.body)));
+  expect(body.model).toBe("deepseek-flash");
+  expect(body.response_format).toEqual({ type: "json_object" });
 });
 
 it("stays on OpenAI when the country lookup fails", async () => {
